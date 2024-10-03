@@ -243,3 +243,221 @@ replicaset.apps/postgres-696fb5d4b6     1         1         1       31m
 curl http://localhost:30001/books 🎉
 
 ===============================================================================
+
+k8s namespaces
+
+like a virtual cluster inside the cluster
+
+k get namespaces
+kube-system: only for the system itself
+kune-public: it has a configmap
+kube-node-lease: keep info about heartbeat of the node
+default: for us to create resources if we don't specify any namespace
+
+create namespace using config file
+
+usecases:
+groupping resources: i.e. database, monitoring, elasticsearch, nginx-ingress, ...
+having multiple teams: similar deployments may overwrite the other
+resource sharing in staging and development: 
+  i.e reuse elasticsearch in both development and staging
+  blue/green in production (different versions of production app)
+access and resource limits: again in having multiple teams
+  set resource quota to prevent a team to starve others
+  secure resources inside a team
+
+you cannot access most resources from another namespace: service can be shared (i.e. db-service)
+
+some components cannot get isolated inside namespaces (they are global): i.e. node, volumes
+  k api-resources --namespaced=false
+
+1. k apply -f <config.yaml> --namespace=default
+2. kind: ...
+   metadata:
+      name: ...
+      namespace: ...
+
+change active namespace with kubens/kubectx tool
+
+===============================================================================
+
+kubernetes ingress
+
+external service vs ingress: http://ip:port -> http://domain.com
+app-pod <- app-service <- app-ingress <- outside request
+
+config file:
+  apiVersion: networking.k8s.io/v1beta1
+  kind: Ingress
+  metadata:
+    name: myapp-ingress
+  spec:
+    rules: # routing rules
+    - host: domain.com # we should map node's IP (entrypoint server) to a valid domain
+      http: # protocol (https later) - it's not the same as request in browser scheme (outside request)
+        paths: # url-path: anything comes after domain.com/...
+        - backend: # target that incoming requests will be redirected (kind: Service)
+            serviceName: myapp-internal-service # metadata: name of app service
+            servicePort: 8080
+
+in addition to ingress config file we need an implementation for ingress which is: Ingress Controller
+which is another pod (or set of pods) that run indside the cluster 
+it evaluates and process the routing rules (managing redirects)
+it is the entrypoint of the cluster
+
+list:
+from k8s itself: k8s Nginx Ingress Controller
+...
+
+entrypoint:
+  cloud providers: specific loadbalancer
+  bare metal: external proxy server (hardware or software), 
+
+
+in minikube: install ingress controller:
+  minikube addons enable ingress
+  you can see it using: k get pod -n kube-system
+
+other routing rules:
+- multiple paths for a same host: separate backends using multiple paths
+- multiple sub-domains or domains: separate backends using multiple hosts
+
+configuring TLS certificate: 
+  spec: tls: host: ... secretName: myapp-secret-tls (points to a secret: ...metadata: name: myapp-secret-tls ...)
+
+===============================================================================
+
+helm
+
+package manager for kubernetes
+to package/bundle yaml files (helm charts)
+
+helm search <keyword>
+https://artifacthub.io/
+helm chart private repository
+
+templating engine: for similar microservices or one app in several environment (dev/stage/prod) 
+{{ .Values.name }} -> values.yaml or --set flag
+
+practical in CI/CD
+
+mychart/
+  Chart.yaml
+  values.yaml
+  charts/
+  templates/
+  ...
+
+valuse injection into template files
+
+helm install --values=my-values.yaml <chartname>
+
+values.yaml         my-values.yaml
+imageName: myapp    version: 2.0.0 # just version is overwritten
+port: 8080
+version: 1.0.0
+
+release management
+in helm v2 there was a server to manageing and keeping history of installed versions called Tiller
+in helm v3 it got removed
+
+===============================================================================
+
+kubernetes volumes
+
+1. persistent volume
+2. persistent volume claim
+3. storage class
+
+usecases:
+storage for statefuls like db
+predefined directory for an app to use as filesystem
+
+persistent volume is a resource just like ram and cpu
+created from yaml file: kind: PersistentVolume
+is gets actual physical storage from: nodes local disk, nfs server, cloud storage, ...
+
+kubernetes just provide an interface 
+we should decide what type of storage we use
+and create and manage them
+
+persistent volumes are not namespaced
+
+local persistent volumes violate two requirements for date persistence:
+1. not being tied to one specific node
+2. not surviving cluster crashes
+
+for db persistence use remote storage
+
+as persistent volumes are resources and should be available
+when using them in apps, providing them before hand is the 
+job of amin.
+
+the job of application developer is to claim the persistent volume using pvc
+
+pv <- pvc <- app-pod
+
+configmap and secret are another local storage type which managed by kubernetes itself
+
+for admins adding manually lots of pv could get tedious.
+storage class provisions persistent volumes dynamically whenever pvc claims it
+
+kind: StorageClass
+...
+provisioner: ... # (internal and external provisioner)
+pv <--dynamically-- sc <- pvc <- app-pod
+
+===============================================================================
+
+statefulsets
+
+stateless -> deployment -> replica & pv 
+
+stateful -> statefulset -> replica & pv
+
+stateful apps are created from same specification but not interchanable
+statefulsets creates a sticky identity for each replica
+if a pod dies, the new one keeps its identity
+
+for example for db, only one pod is for read and write (master)
+the pods don't use the same physical storage (data is the same but not in same path. they are sync)
+
+there is service for statefulsets just like deployments
+
+tasks that we should do ourselves:
+configuring the cloning and synchronization
+make remote storage available
+managing and backup
+
+===============================================================================
+
+k8s services
+
+ClusterIP
+Headless
+NodePort
+LoadBalancer
+
+multi-port service: when srevice exposes multiple ports i.e. postgres and postgres-expoerter for prometheus
+in that case ports: should have - name: ... attribute for each exposed port
+
+Headless: when client wants to talk to specific replica (pod) directly without going through service
+it is needed in stateful applications. (remember pods in stateful apps are not identical - and master only allowed to write)
+in this case client should lookup pod IP (DNS lookup)
+
+DNS lookup for service: returns single IP address (ClusterIP)
+set ClusterIP to `None` (in kind: Service - Headless Service): returns pod IP address instead 
+
+NodePort: creates a port which is accessible through external trafic (it is available in every worker nodes)
+30000 - 32767
+not efficient and not secure
+
+better alternative is LoadBalancer
+when define LoadBalancer, NodePort and ClusterIP service are created automatically by kubernetes
+
+LoadBalancer is an extension of NodePort which is an extension of ClusterIP
+
+NodePort is not for production
+in production either LoadBalancer of cloud providers or ingress
+
+===============================================================================
