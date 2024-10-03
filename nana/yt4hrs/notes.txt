@@ -1,0 +1,245 @@
+https://www.youtube.com/watch?v=X48VuDVv0do
+
+- what is kubernetes
+- k8s architecture
+- main k8s components
+- minikube and kubectl
+- main kubectl commands
+- k8s yaml config files
+- hands-on (deploy an app)
+
+- organizing components using namespaces
+- ingress
+- helm
+- volumes
+- statefulsets
+- service types (ClusterIP, NodePort, Headless, LoadBalancer)
+
+===============================================================================
+
+container orchestration tool
+
+what problem it solves?
+what are the tasks?
+
+HA
+Scalability
+Disaster Recovery
+
+===============================================================================
+
+components
+
+- node
+- pod: 
+    abstraction over a container
+    smallest unit in k8s
+    usually 1 app per pod
+    how pods communicate? k8s gives them a virtual IP (ephemeral) -> service
+- service:
+    permamnent IP address (and LoadBalancer)
+    the lifecycle of pods and servuces are not connected
+    external service for app accessible from outside - internal service e.g. for db 
+- ingress:
+    to access from outside like: https://my-app.domain.com and not https://node-ip:port
+- configmap:
+    external configuration of your application
+- secret:
+    use secret and configmap as environment variables
+- volumes
+- deployment:
+    a blueprint for defining pods
+- stateful set:
+    a blueprint for defining db (or similar)
+
+===============================================================================
+
+kubernetes architecture
+
+worker nodes:
+ 3 essential components (processes): 
+    container runtime (docker)
+    kubelet: 
+        interact with both container and node
+        kubelet starts the pod and assigning resources
+    kube proxy:
+        forwards the requests (for example it routes a db request of an app to the db pod on the same node - reduce network overhead)
+
+how to interact with the cluster? schedule pos, monitor, re-schedule/restart a pod, join a new node -> master node
+master nodes:
+4 essential components (processes):
+    api server: 
+        like the cluster gateway
+        acts as a gatekeeper (authentication)
+    scheduler:
+        it is only decides where to put pods, the actual work is done by kubelet
+    controller manager:
+        detects cluster state changes (pods die)
+        makes a request to the scheduler
+    etcd:
+        key-value store of the cluster state
+
+===============================================================================
+
+example cluster setup
+
+===============================================================================
+
+minikube and kubectl
+
+===============================================================================
+
+main kubectl commands
+
+create and debug pods
+
+CRUD commands (e.g create/edit/delete deployment)
+
+status of different k8s components
+k get nodes | pod | services | replicaset | deployment
+
+debugging pods
+k logs <pod-name>
+k exec -it <pod-name> -- bin/bash
+
+k create deployment nginx-depl --image=nginx:1.27.2-alpine-slim
+
+k get deployments.apps
+NAME         READY   UP-TO-DATE   AVAILABLE   AGE
+nginx-depl   0/1     1            0           10s
+
+k get pods
+NAME                         READY   STATUS              RESTARTS   AGE
+nginx-depl-88bbbdf56-427j8   0/1     ContainerCreating   0          24s
+
+pod name: <deployment-name>-<replicaset-id>-<id>
+
+k get replicasets.apps
+NAME                   DESIRED   CURRENT   READY   AGE
+nginx-depl-88bbbdf56   1         1         1       78s
+
+abstraction layers:
+deployment
+replicaset
+pod
+container
+
+k edit deployments.apps nginx-depl
+
+debugging pods
+k logs nginx-depl-88bbbdf56-427j8
+k describe pod nginx-depl-88bbbdf56-427j8 
+k exec -it pods/nginx-depl-88bbbdf56-427j8 -- sh
+
+delete deployment
+k delete deployments.apps nginx-depl
+
+k apply -f nginx-deployment.yaml
+
+===============================================================================
+
+k8s configuration yaml files
+
+3 parts of a configuration file:
+    metadata
+    specification: different for each kind
+    status: automatic by k8s (desired vs actual)
+
+format of configuration files
+strict indentation
+use yaml validators
+
+connecting components (labels, selectors, and ports)
+in metadata we add labels (a key-value pair)
+in deployments selectors will match labels of pods metadata, 
+in services selectors will match labels of deployments metadata
+service targetPort will connect to pods containerPort
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  labels:
+    app: nginx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.16
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  selector:
+    app: nginx
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+
+to verify that service is pointing to the correct pods
+k describe service nginx-service
+shows selector, targetPort, endpoint (ip:port, ip:port, ...)
+
+to see IPs of pods:
+k get pod -o wide
+
+k get deployments.apps nginx-depl -o yaml > nginx-deployment.result.yaml
+
+===============================================================================
+
+application setup
+
+db pod - internal service: db url (configmap), db username, db password (secret)
+app pod - external service (accessible with IP:port for now) - deployment yaml: reference to above configmap and secret, environment variables
+
+- create a pg deployment
+- create a app deployment
+- create a secret
+- create a configmap
+- apply secret and configmap: k apply -f infra/app-secret.yaml && k apply -f infra/app-configmap.yaml
+- apply pvc: k apply -f infra/postgres-pvc.yaml
+- apply pg deployment(and service): k apply -f infra/postgres-deployment.yaml
+- create app image: docker buildx build . -t mini-go-pg-app:v0.1
+- create app service: difference: type: LoadBalancer and nodePort: 30001
+- apply app deployment(and service): k apply -f infra/app-deployment.yaml
+    for getting an external-IP in minikube: minikube service <service-name>
+    in rancher desktop:
+      Option1: use NodePort type for now
+      Option 2: use kubectl port-forward
+      Option 3: use MetalLB for LoadBalancer Support
+      * see ./misc/lb-rancher-desktop.md
+
+
+NAME                              READY   STATUS    RESTARTS   AGE
+pod/golang-app-5fbd74df79-gqpj4   1/1     Running   0          49s
+pod/postgres-696fb5d4b6-c2rgh     1/1     Running   0          31m
+
+NAME                         TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE
+service/golang-app-service   LoadBalancer   10.43.221.14   <pending>     80:30001/TCP   49s
+service/kubernetes           ClusterIP      10.43.0.1      <none>        443/TCP        8h
+service/postgres-service     ClusterIP      10.43.73.149   <none>        5432/TCP       44m
+
+NAME                         READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/golang-app   1/1     1            1           49s
+deployment.apps/postgres     1/1     1            1           31m
+
+NAME                                    DESIRED   CURRENT   READY   AGE
+replicaset.apps/golang-app-5fbd74df79   1         1         1       49s
+replicaset.apps/postgres-696fb5d4b6     1         1         1       31m
+
+curl http://localhost:30001/books 🎉
+
+===============================================================================

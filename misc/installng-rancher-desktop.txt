@@ -1,0 +1,29 @@
+udemi kubernetes masterclass for beginners
+
+installing Rancher Desktop: https://docs.rancherdesktop.io/getting-started/installation/
+
+install kubectl and k9s
+and connect them to the kubernetes cluster
+
+kubectl: https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/
+
+proxychains curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl.sha256"
+echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+kubectl version --client
+
+installing k9s using snap
+
+
+there is no need for extra step for connecting kubectl to the cluster
+because rancher adds a kube config in ~/.kube dir
+
+
+set alias k
+
+alias k='kubectl'
+source /etc/bash_completion
+source <(kubectl completion bash)
+complete -o default -F __start_kubectl k
+
