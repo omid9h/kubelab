@@ -1,0 +1,21 @@
+# Dockerfile for Golang app
+FROM golang:1.23-alpine
+
+# Install Delve for debugging
+RUN apk add --no-cache git bash && \
+    go install github.com/go-delve/delve/cmd/dlv@latest
+
+WORKDIR /app
+
+# Copy go.mod and go.sum files for dependency installation
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the rest of the application code
+COPY . .
+
+# Build the Go app
+RUN go build -gcflags "all=-N -l" -o /goapp .
+
+# Run the application with Delve debugger in headless mode
+CMD ["dlv", "exec", "/goapp", "--headless", "--listen=:40000", "--api-version=2", "--log"]

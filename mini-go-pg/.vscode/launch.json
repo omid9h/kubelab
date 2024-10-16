@@ -1,0 +1,19 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Debug in Minikube",
+        "type": "go",
+        "request": "attach",
+        "mode": "remote",
+        "remotePath": "/app",  // Path inside the container
+        "port": 40000,
+        "host": "127.0.0.1",  // Localhost, since we port-forwarded
+        "cwd": "${workspaceFolder}",
+        "apiVersion": 2,
+        "trace": "verbose",
+        "showLog": true
+      }
+    ]
+  }
+  
